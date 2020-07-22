@@ -57,9 +57,13 @@ public class MerkleNode {
         if (rawjson instanceof String)
             return new MerkleNode((String)rawjson);
         Map json = (Map)rawjson;
+        if ("error".equals(json.get("Type")))
+            throw new IllegalStateException("Remote IPFS error: " + json.get("Message"));
         String hash = (String)json.get("Hash");
         if (hash == null)
             hash = (String)json.get("Key");
+        if (hash == null && json.containsKey("Cid"))
+            hash = (String) (((Map) json.get("Cid")).get("/"));
         Optional<String> name = json.containsKey("Name") ?
                 Optional.of((String) json.get("Name")) :
                 Optional.empty();
@@ -70,8 +74,6 @@ public class MerkleNode {
         Optional<String> largeSize = rawSize instanceof String ?
                 Optional.of((String) json.get("Size")) :
                 Optional.empty();
-        if ("error".equals(json.get("Type")))
-            throw new IllegalStateException("Remote IPFS error: " + json.get("Message"));
         Optional<Integer> type = json.containsKey("Type") ?
                 Optional.of((Integer) json.get("Type")) :
                 Optional.empty();
@@ -84,21 +86,26 @@ public class MerkleNode {
     }
 
     public Object toJSON() {
-        Map res = new TreeMap<>();
+        Map<String, Object> res = new TreeMap<>();
         res.put("Hash", hash);
         res.put("Links", links.stream().map(x -> x.hash).collect(Collectors.toList()));
-        if (data.isPresent())
-            res.put("Data", data.get());
-        if (name.isPresent())
-            res.put("Name", name.get());
-        if (size.isPresent())
-            res.put("Size", size.isPresent() ? size.get() : largeSize.get());
-        if (type.isPresent())
-            res.put("Type", type.get());
+        data.ifPresent(bytes -> res.put("Data", bytes));
+        name.ifPresent(s -> res.put("Name", s));
+        if (size.isPresent()) {
+            res.put("Size", size.get());
+        } else {
+            largeSize.ifPresent(s -> res.put("Size", s));
+        }
+        type.ifPresent(integer -> res.put("Type", integer));
         return res;
     }
 
     public String toJSONString() {
         return JSONParser.toString(toJSON());
+    }
+
+    @Override
+    public String toString() {
+        return hash + "-" + name.orElse("");
     }
 }

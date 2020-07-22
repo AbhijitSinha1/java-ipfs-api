@@ -1,4 +1,4 @@
-# java-ipfs-api
+# java-ipfs-http-client
 
 [![](https://img.shields.io/badge/made%20by-Protocol%20Labs-blue.svg?style=flat-square)](http://ipn.io)
 [![](https://img.shields.io/badge/project-IPFS-blue.svg?style=flat-square)](http://ipfs.io/)
@@ -7,7 +7,7 @@
 
 ![](https://ipfs.io/ipfs/QmQJ68PFMDdAsgCZvA1UVzzn18asVcf7HVvCDgpjiSCAse)
 
-> A Java implementation of the IPFS http api
+> A Java client for the IPFS http api
 
 ## Table of Contents
 
@@ -21,11 +21,11 @@
 
 ### Official releases
 
-You can use this project by including `ipfs.jar` from one of the [releases](https://github.com/ipfs/java-ipfs-api/releases).
+You can use this project by including `ipfs.jar` from one of the [releases](https://github.com/ipfs/java-ipfs-api/releases) along with the dependencies.
 
 ### Maven, Gradle, SBT
 
-Package managers are supported through [JitPack](https://jitpack.io/#ipfs/java-ipfs-api/) whcih supports Maven, Gradle, SBT, etc.
+Package managers are supported through [JitPack](https://jitpack.io/#ipfs/java-ipfs-http-client/) which supports Maven, Gradle, SBT, etc.
 
 for Maven, add the following sections to your pom.xml (replacing $LATEST_VERSION):
 ```
@@ -39,7 +39,7 @@ for Maven, add the following sections to your pom.xml (replacing $LATEST_VERSION
   <dependencies>
     <dependency>
       <groupId>com.github.ipfs</groupId>
-      <artifactId>java-ipfs-api</artifactId>
+      <artifactId>java-ipfs-http-client</artifactId>
       <version>$LATEST_VERSION</version>
     </dependency>
   </dependencies>
@@ -49,8 +49,22 @@ for Maven, add the following sections to your pom.xml (replacing $LATEST_VERSION
 
 * Clone this repository
 * Run `ant dist`
-* Copy `dist/ipfs.jar` into your project. Appropriate versions of other [dependencies](#Dependencies) are also included in `dist/lib/`.
+* Copy `dist/ipfs.jar` into your project. Appropriate versions of other [dependencies](#dependencies) are also included in `dist/lib/`.
 * Run tests using `ant test`.
+
+### Running tests
+
+To run tests, IPFS daemon must be running on `127.0.0.1` interface. 
+
+### IPFS installation
+
+#### Command line
+
+Download ipfs from https://dist.ipfs.io/#go-ipfs and run with `ipfs daemon --enable-pubsub-experiment`
+
+#### Docker Compose
+
+Run `docker-compose up` from the project's root directory. Check [docker-compose.yml](docker-compose.yml) for more details.
 
 ## Usage
 

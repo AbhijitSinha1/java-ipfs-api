@@ -9,6 +9,7 @@ import org.junit.*;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.*;
 import java.util.stream.*;
 
@@ -21,22 +22,24 @@ public class APITest {
 
     @Test
     public void dag() throws IOException {
-        byte[] object = "{\"data\":1234}".getBytes();
+        String original = "{\"data\":1234}";
+        byte[] object = original.getBytes();
         MerkleNode put = ipfs.dag.put("json", object);
 
-        Cid expected = Cid.decode("zdpuB2CbdLrUK5AgZusm4hraisDDDC135ugdmZWvMHhhsSYTb");
+        Cid expected = Cid.decode("zdpuAs3whHmb9T1NkHSLGF45ykcKrEBxSLiEx6YpLzmKbQLEB");
 
         Multihash result = put.hash;
         Assert.assertTrue("Correct cid returned", result.equals(expected));
 
         byte[] get = ipfs.dag.get(expected);
-        Assert.assertTrue("Raw data equal", Arrays.equals(object, get));
+        Assert.assertTrue("Raw data equal", original.equals(new String(get).trim()));
     }
 
     @Test
     public void dagCbor() throws IOException {
-        Map<String, CborObject> tmp = new TreeMap<>();
-        tmp.put("data", new CborObject.CborByteArray("G'day mate!".getBytes()));
+        Map<String, CborObject> tmp = new LinkedHashMap<>();
+        String value = "G'day mate!";
+        tmp.put("data", new CborObject.CborString(value));
         CborObject original = CborObject.CborMap.build(tmp);
         byte[] object = original.toByteArray();
         MerkleNode put = ipfs.dag.put("cbor", object);
@@ -44,10 +47,9 @@ public class APITest {
         Cid cid = (Cid) put.hash;
 
         byte[] get = ipfs.dag.get(cid);
-        CborObject cborObject = CborObject.fromByteArray(get);
-        Assert.assertTrue("Raw data equal", Arrays.equals(object, get));
+        Assert.assertTrue("Raw data equal", ((Map)JSONParser.parse(new String(get))).get("data").equals(value));
 
-        Cid expected = Cid.decode("zdpuB2RwxeC5eC7oxiyzzhuZwAPd26YNRxXHvcTvgm4MbXwsC");
+        Cid expected = Cid.decode("zdpuApemz4XMURSCkBr9W5y974MXkSbeDfLeZmiQTPpvkatFF");
         Assert.assertTrue("Correct cid returned", cid.equals(expected));
     }
 
@@ -100,8 +102,9 @@ public class APITest {
 
     @Test
     public void dirTest() throws IOException {
-        NamedStreamable.DirWrapper dir = new NamedStreamable.DirWrapper("root", Arrays.asList());
-        MerkleNode addResult = ipfs.add(dir).get(0);
+        NamedStreamable dir = new NamedStreamable.FileWrapper(new File("java"));
+        List<MerkleNode> add = ipfs.add(dir);
+        MerkleNode addResult = add.get(add.size() - 1);
         List<MerkleNode> ls = ipfs.ls(addResult.hash);
         Assert.assertTrue(ls.size() > 0);
     }
@@ -263,7 +266,7 @@ public class APITest {
     public void rawLeafNodePinUpdate() throws IOException {
         MerkleNode child1 = ipfs.block.put("some data".getBytes(), Optional.of("raw"));
         Multihash hashChild1 = child1.hash;
-        System.out.println("child1: " + hashChild1.type);
+        System.out.println("child1: " + hashChild1);
 
         CborObject.CborMerkleLink root1 = new CborObject.CborMerkleLink(hashChild1);
         MerkleNode root1Res = ipfs.block.put(Collections.singletonList(root1.toByteArray()), Optional.of("cbor")).get(0);
@@ -381,12 +384,33 @@ public class APITest {
     }
 
     @Test
-    public void pubsubSynchronous() throws IOException {
+    public void publish() throws Exception {
+        // JSON document
+        String json = "{\"name\":\"blogpost\",\"documents\":[]}";
+
+        // Add a DAG node to IPFS
+        MerkleNode merkleNode = ipfs.dag.put("json", json.getBytes());
+        Assert.assertEquals("expected to be zdpuAknRh1Kro2r2xBDKiXyTiwA3Nu5XcmvjRPA1VNjH41NF7" , "zdpuAknRh1Kro2r2xBDKiXyTiwA3Nu5XcmvjRPA1VNjH41NF7", merkleNode.hash.toString());
+
+        // Get a DAG node
+        byte[] res = ipfs.dag.get((Cid) merkleNode.hash);
+        Assert.assertEquals("Should be equals", JSONParser.parse(json), JSONParser.parse(new String(res)));
+
+        // Publish to IPNS
+        Map result = ipfs.name.publish(merkleNode.hash);
+
+        // Resolve from IPNS
+        String resolved = ipfs.name.resolve(Multihash.fromBase58((String) result.get("Name")));
+        Assert.assertEquals("Should be equals", resolved, "/ipfs/" + merkleNode.hash.toString());
+    }
+
+    @Test
+    public void pubsubSynchronous() throws Exception {
         String topic = "topic" + System.nanoTime();
         List<Map<String, Object>> res = Collections.synchronizedList(new ArrayList<>());
         new Thread(() -> {
             try {
-                ipfs.pubsub.sub(topic, res::add);
+                ipfs.pubsub.sub(topic, res::add, t -> t.printStackTrace());
             } catch (IOException e) {
                 throw new RuntimeException(e);}
         }).start();
@@ -406,17 +430,14 @@ public class APITest {
     }
 
     @Test
-    public void pubsub() throws IOException {
-        Object ls = ipfs.pubsub.ls();
-        Object peers = ipfs.pubsub.peers();
+    public void pubsub() throws Exception {
         String topic = "topic" + System.nanoTime();
-        Supplier<Map<String, Object>> sub = ipfs.pubsub.sub(topic);
-        Map<String, Object> first = sub.get();
-        Assert.assertTrue(first.equals(Collections.emptyMap()));
+        Stream<Map<String, Object>> sub = ipfs.pubsub.sub(topic);
         String data = "Hello!";
         Object pub = ipfs.pubsub.pub(topic, data);
-        Map second = sub.get();
-        Assert.assertTrue( ! second.equals(Collections.emptyMap()));
+        Object pub2 = ipfs.pubsub.pub(topic, "G'day");
+        List<Map> results = sub.limit(2).collect(Collectors.toList());
+        Assert.assertTrue( ! results.get(0).equals(Collections.emptyMap()));
     }
 
     private static String toEscapedHex(byte[] in) throws IOException {
@@ -587,6 +608,7 @@ public class APITest {
     }
 
     @Test
+    @Ignore("name test may hang forever")
     public void nameTest() throws IOException {
         MerkleNode pointer = new MerkleNode("QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB");
         Map pub = ipfs.name.publish(pointer.hash);
@@ -599,7 +621,7 @@ public class APITest {
     @Test
     public void dnsTest() throws IOException {
         String domain = "ipfs.io";
-        String dns = ipfs.dns(domain);
+        String dns = ipfs.dns(domain, true);
     }
 
     public void mountTest() throws IOException {
@@ -608,12 +630,12 @@ public class APITest {
 
     @Test
     public void dhtTest() throws IOException {
-        Multihash pointer = Multihash.fromBase58("QmPZ9gcCEpqKTo6aq61g2nXGUhM4iCL3ewB6LDXZCtioEB");
-        Map get = ipfs.dht.get(pointer);
-        Map put = ipfs.dht.put("somekey", "somevalue");
-        Map findprovs = ipfs.dht.findprovs(pointer);
+        MerkleNode raw = ipfs.block.put("Mathematics is wonderful".getBytes(), Optional.of("raw"));
+//        Map get = ipfs.dht.get(raw.hash);
+//        Map put = ipfs.dht.put("somekey", "somevalue");
+        List<Map<String, Object>> findprovs = ipfs.dht.findprovs(raw.hash);
         List<Peer> peers = ipfs.swarm.peers();
-        Map query = ipfs.dht.query(peers.get(0).address);
+        Map query = ipfs.dht.query(peers.get(0).id);
         Map find = ipfs.dht.findpeer(peers.get(0).id);
     }
 
@@ -635,18 +657,28 @@ public class APITest {
 
     @Test
     public void swarmTest() throws IOException {
-        String multiaddr = "/ip4/127.0.0.1/tcp/4001/ipfs/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ";
-        Map connect = ipfs.swarm.connect(multiaddr);
-        Map disconnect = ipfs.swarm.disconnect(multiaddr);
-        Map<String, Object> addrs = ipfs.swarm.addrs();
+        Map<Multihash, List<MultiAddress>> addrs = ipfs.swarm.addrs();
         if (addrs.size() > 0) {
-            boolean contacted = addrs.keySet().stream()
-                    .anyMatch(target -> {
+            boolean contacted = addrs.entrySet().stream()
+                    .anyMatch(e -> {
+                        Multihash target = e.getKey();
+                        List<MultiAddress> nodeAddrs = e.getValue();
+                        boolean contactable = nodeAddrs.stream()
+                                .anyMatch(addr -> {
+                                    try {
+                                        MultiAddress peer = new MultiAddress(addr.toString() + "/ipfs/" + target.toBase58());
+                                        Map connect = ipfs.swarm.connect(peer);
+                                        Map disconnect = ipfs.swarm.disconnect(peer);
+                                        return true;
+                                    } catch (Exception ex) {
+                                        return false;
+                                    }
+                                });
                         try {
                             Map id = ipfs.id(target);
                             Map ping = ipfs.ping(target);
-                            return true;
-                        } catch (Exception e) {
+                            return contactable;
+                        } catch (Exception ex) {
                             // not all nodes have to be contactable
                             return false;
                         }
@@ -670,7 +702,8 @@ public class APITest {
     @Test
     public void diagTest() throws IOException {
         Map config = ipfs.config.show();
-        String val = ipfs.config.get("Datastore.GCPeriod");
+        Object mdns = ipfs.config.get("Discovery.MDNS.Interval");
+        Object val = ipfs.config.get("Datastore.GCPeriod");
         Map setResult = ipfs.config.set("Datastore.GCPeriod", val);
         ipfs.config.replace(new NamedStreamable.ByteArrayWrapper(JSONParser.toString(config).getBytes()));
 //            Object log = ipfs.log();
@@ -685,6 +718,18 @@ public class APITest {
         int minor = Integer.parseInt(version.split("\\.")[1]);
         assertTrue(major >= 0 && minor >= 4);     // Requires at least 0.4.0
         Map commands = ipfs.commands();
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void testTimeoutFail() throws IOException {
+        IPFS ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001")).timeout(1000);
+        ipfs.cat(Multihash.fromBase58("QmYpbSXyiCTYCbyMpzrQNix72nBYB8WRv6i39JqRc8C1ry"));
+    }
+
+    @Test
+    public void testTimeoutOK() throws IOException {
+        IPFS ipfs = new IPFS(new MultiAddress("/ip4/127.0.0.1/tcp/5001")).timeout(1000);
+        ipfs.cat(Multihash.fromBase58("Qmaisz6NMhDB51cCvNWa1GMS7LU1pAxdF4Ld6Ft9kZEP2a"));
     }
 
     // this api is disabled until deployment over IPFS is enabled

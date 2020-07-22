@@ -29,6 +29,8 @@ public interface NamedStreamable
         private final File source;
 
         public FileWrapper(File source) {
+            if (! source.exists())
+                throw new IllegalStateException("File does not exist: " + source);
             this.source = source;
         }
 
@@ -55,6 +57,41 @@ public interface NamedStreamable
             } catch (UnsupportedEncodingException e) {
                 throw new RuntimeException(e);
             }
+        }
+    }
+
+    class InputStreamWrapper implements NamedStreamable {
+        private final Optional<String> name;
+        private final InputStream data;
+
+        public InputStreamWrapper(InputStream data) {
+            this(Optional.empty(), data);
+        }
+
+        public InputStreamWrapper(String name, InputStream data) {
+            this(Optional.of(name), data);
+        }
+
+        public InputStreamWrapper(Optional<String> name, InputStream data) {
+            this.name = name;
+            this.data = data;
+        }
+
+        public boolean isDirectory() {
+            return false;
+        }
+
+        public InputStream getInputStream() {
+            return data;
+        }
+
+        @Override
+        public List<NamedStreamable> getChildren() {
+            return Collections.emptyList();
+        }
+
+        public Optional<String> getName() {
+            return name;
         }
     }
 

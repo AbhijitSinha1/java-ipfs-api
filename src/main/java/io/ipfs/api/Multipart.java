@@ -11,7 +11,6 @@ public class Multipart {
     private HttpURLConnection httpConn;
     private String charset;
     private OutputStream out;
-    private PrintWriter writer;
 
     public Multipart(String requestURL, String charset) {
         this.charset = charset;
@@ -24,10 +23,10 @@ public class Multipart {
             httpConn.setUseCaches(false);
             httpConn.setDoOutput(true);
             httpConn.setDoInput(true);
+            httpConn.setRequestProperty("Expect", "100-continue");
             httpConn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
             httpConn.setRequestProperty("User-Agent", "Java IPFS CLient");
             out = httpConn.getOutputStream();
-            writer = new PrintWriter(new OutputStreamWriter(out, charset), true);
         } catch (IOException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -41,16 +40,20 @@ public class Multipart {
             b.append(allowed.charAt(r.nextInt(allowed.length())));
         return b.toString();
     }
+    
+    private Multipart append(String value) throws IOException {
+        out.write(value.getBytes(charset));
+        return this;
+    }
 
-    public void addFormField(String name, String value) {
-        writer.append("--" + boundary).append(LINE_FEED);
-        writer.append("Content-Disposition: form-data; name=\"" + name + "\"")
+    public void addFormField(String name, String value) throws IOException {
+        append("--").append(boundary).append(LINE_FEED);
+        append("Content-Disposition: form-data; name=\"").append(name).append("\"")
                 .append(LINE_FEED);
-        writer.append("Content-Type: text/plain; charset=" + charset).append(
-                LINE_FEED);
-        writer.append(LINE_FEED);
-        writer.append(value).append(LINE_FEED);
-        writer.flush();
+        append("Content-Type: text/plain; charset=").append(charset).append(LINE_FEED);
+        append(LINE_FEED);
+        append(value).append(LINE_FEED);
+        out.flush();
     }
 
     public void addSubtree(Path parentPath, NamedStreamable dir) throws IOException {
@@ -64,14 +67,14 @@ public class Multipart {
         }
     }
 
-    public void addDirectoryPart(Path path) {
-        writer.append("--" + boundary).append(LINE_FEED);
-        writer.append("Content-Disposition: file; filename=\"" + encode(path.toString()) + "\"").append(LINE_FEED);
-        writer.append("Content-Type: application/x-directory").append(LINE_FEED);
-        writer.append("Content-Transfer-Encoding: binary").append(LINE_FEED);
-        writer.append(LINE_FEED);
-        writer.append(LINE_FEED);
-        writer.flush();
+    public void addDirectoryPart(Path path) throws IOException {
+        append("--").append(boundary).append(LINE_FEED);
+        append("Content-Disposition: file; filename=\"").append(encode(path.toString())).append("\"").append(LINE_FEED);
+        append("Content-Type: application/x-directory").append(LINE_FEED);
+        append("Content-Transfer-Encoding: binary").append(LINE_FEED);
+        append(LINE_FEED);
+        append(LINE_FEED);
+        out.flush();
     }
 
     private static String encode(String in) {
@@ -82,17 +85,17 @@ public class Multipart {
         }
     }
 
-    public void addFilePart(String fieldName, Path parent, NamedStreamable uploadFile) {
-        Optional<String> fileName = uploadFile.getName().map(n -> encode(parent.resolve(n).toString()));
-        writer.append("--" + boundary).append(LINE_FEED);
+    public void addFilePart(String fieldName, Path parent, NamedStreamable uploadFile) throws IOException {
+        Optional<String> fileName = uploadFile.getName().map(n -> encode(parent.resolve(n).toString().replace('\\','/')));
+        append("--").append(boundary).append(LINE_FEED);
         if (!fileName.isPresent())
-            writer.append("Content-Disposition: file; name=\"" + fieldName + "\";").append(LINE_FEED);
+            append("Content-Disposition: file; name=\"").append(fieldName).append("\";").append(LINE_FEED);
         else
-            writer.append("Content-Disposition: file; filename=\"" + fileName.get() + "\";").append(LINE_FEED);
-        writer.append("Content-Type: application/octet-stream").append(LINE_FEED);
-        writer.append("Content-Transfer-Encoding: binary").append(LINE_FEED);
-        writer.append(LINE_FEED);
-        writer.flush();
+            append("Content-Disposition: file; filename=\"").append(fileName.get()).append("\";").append(LINE_FEED);
+        append("Content-Type: application/octet-stream").append(LINE_FEED);
+        append("Content-Transfer-Encoding: binary").append(LINE_FEED);
+        append(LINE_FEED);
+        out.flush();
 
         try {
             InputStream inputStream = uploadFile.getInputStream();
@@ -106,20 +109,21 @@ public class Multipart {
             throw new RuntimeException(e.getMessage(), e);
         }
 
-        writer.append(LINE_FEED);
-        writer.flush();
+        append(LINE_FEED);
+        out.flush();
     }
 
-    public void addHeaderField(String name, String value) {
-        writer.append(name + ": " + value).append(LINE_FEED);
-        writer.flush();
+    public void addHeaderField(String name, String value) throws IOException {
+        append(name + ": " + value).append(LINE_FEED);
+        out.flush();
     }
 
-    public String finish() {
+    public String finish() throws IOException {
         StringBuilder b = new StringBuilder();
 
-        writer.append("--" + boundary + "--").append(LINE_FEED);
-        writer.close();
+        append("--" + boundary + "--").append(LINE_FEED);
+        out.flush();
+        out.close();
 
         try {
             int status = httpConn.getResponseCode();
